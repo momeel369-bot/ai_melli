@@ -1,0 +1,516 @@
+# ============================================================
+# 🔍 AI Melli — Web Search (g4f Enhanced)
+# ============================================================
+# یکپارچه‌سازی با g4f: انتخاب پرووایدر برای خلاصه‌سازی AI
+# https://g4f.dev/docs/ready_to_use.html
+# ============================================================
+
+name: "🔍 Web Search (g4f)"
+
+on:
+  workflow_dispatch:
+    inputs:
+      query:
+        description: "عبارت جستجو (فارسی یا انگلیسی)"
+        required: true
+        type: string
+
+      num_results:
+        description: "تعداد نتایج (1-20)"
+        required: false
+        default: "10"
+        type: string
+
+      search_type:
+        description: "نوع جستجو"
+        required: true
+        default: "general"
+        type: choice
+        options:
+          - general
+          - news
+          - images
+          - videos
+
+      safe_search:
+        description: "جستجوی امن"
+        required: false
+        default: "moderate"
+        type: choice
+        options:
+          - "off"
+          - moderate
+          - strict
+
+      language:
+        description: "زبان جستجو"
+        required: false
+        default: "auto"
+        type: choice
+        options:
+          - auto
+          - en
+          - fa
+          - ar
+          - fr
+          - de
+          - es
+          - zh
+          - ja
+
+      deep_search:
+        description: "جستجوی عمیق (نتایج بیشتر)"
+        required: false
+        default: "false"
+        type: choice
+        options:
+          - "true"
+          - "false"
+
+      ai_summary_provider:
+        description: "پرووایدر خلاصه AI (g4f)"
+        required: true
+        default: "pollinations"
+        type: choice
+        options:
+          - pollinations
+          - groq
+          - ollama
+          - nvidia
+          - gemini
+          - auto
+          - deepinfra
+          - openrouter
+          - together
+          - xai
+          - grok
+          - api-airforce
+
+      ai_summary_model:
+        description: "مدل خلاصه AI"
+        required: false
+        default: "auto"
+        type: string
+
+      include_ai_summary:
+        description: "شامل خلاصه AI"
+        required: false
+        default: "true"
+        type: choice
+        options:
+          - "true"
+          - "false"
+
+      upload_method:
+        description: "روش آپلود"
+        required: true
+        default: "repository"
+        type: choice
+        options:
+          - repository
+          - release
+
+      release_tag:
+        description: "تگ ریلیز (خالی = خودکار)"
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: write
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  search:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: "📥 Checkout"
+        uses: actions/checkout@v5
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: "📁 Prepare scripts"
+        shell: bash
+        run: mkdir -p scripts output
+
+      - name: "🐍 Create web search script (g4f)"
+        shell: bash
+        run: |
+          cat > scripts/web_search_g4f.py << 'PYEOF'
+          #!/usr/bin/env python3
+          """
+          AI Melli — Web Search with g4f AI Summary
+          Direct HTTP search + g4f-powered AI summarization
+          """
+          import json, sys, os, time, re
+          import urllib.request
+          import urllib.parse
+          from datetime import datetime, timezone, timedelta
+
+          HEADERS = {
+              "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+              "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+              "Accept-Language": "en-US,en;q=0.9",
+          }
+
+          # g4f Provider Base URLs for AI Summary
+          G4F_PROVIDERS = {
+              "pollinations": "https://text.pollinations.ai",
+              "groq": "https://g4f.space/api/groq",
+              "ollama": "https://g4f.space/api/ollama",
+              "nvidia": "https://g4f.space/api/nvidia",
+              "gemini": "https://g4f.space/api/gemini",
+              "auto": "https://g4f.space/api/auto",
+              "deepinfra": "https://api.deepinfra.com/v1",
+              "openrouter": "https://openrouter.ai/api/v1",
+              "together": "https://api.together.xyz/v1",
+              "xai": "https://api.x.ai/v1",
+              "grok": "https://api.grok.com/v1",
+              "api-airforce": "https://api.airforce/v1",
+          }
+
+          def http_get(url, timeout=30):
+              for attempt in range(3):
+                  try:
+                      req = urllib.request.Request(url, headers=HEADERS)
+                      with urllib.request.urlopen(req, timeout=timeout) as resp:
+                          return resp.read().decode("utf-8", errors="replace")
+                  except Exception as e:
+                      print(f"  Attempt {attempt+1} failed: {e}")
+                      if attempt < 2: time.sleep(2)
+              return None
+
+          def search_ddg_lite(query, max_results):
+              results = []
+              encoded = urllib.parse.quote(query, safe="")
+              url = f"https://lite.duckduckgo.com/lite/?q={encoded}"
+              print(f"  DDG Lite URL: {url}")
+              html = http_get(url, timeout=30)
+              if not html: return results
+              print(f"  DDG Lite: Got {len(html)} chars")
+
+              link_pattern = re.compile(r'<a[^>]+class="result-link"[^>]+href="([^"]*)"[^>]*>(.*?)</a>', re.DOTALL)
+              snippet_pattern = re.compile(r'<td[^>]+class="result-snippet"[^>]*>(.*?)</td>', re.DOTALL)
+              link_pattern2 = re.compile(r'<a[^>]+href="(https?://[^"]*)"[^>]*class="[^"]*result[^"]*"[^>]*>(.*?)</a>', re.DOTALL)
+
+              def clean_html(text):
+                  text = re.sub(r'<[^>]+>', '', str(text))
+                  for k, v in [('&amp;','&'),('&lt;','<'),('&gt;','>'),('&quot;','"'),("&#39;","'"),('&nbsp;',' ')]:
+                      text = text.replace(k, v)
+                  return re.sub(r'\s+', ' ', text).strip()
+
+              links = link_pattern.findall(html)
+              snippets = snippet_pattern.findall(html)
+              if not links:
+                  links = link_pattern2.findall(html)
+
+              for i, (raw_url, raw_title) in enumerate(links):
+                  if i >= max_results: break
+                  title = clean_html(raw_title)
+                  url_val = clean_html(raw_url)
+                  if "uddg=" in url_val:
+                      try:
+                          from urllib.parse import parse_qs, urlparse
+                          qs = parse_qs(urlparse(url_val).query)
+                          if "uddg" in qs: url_val = urllib.parse.unquote(qs["uddg"][0])
+                      except: pass
+                  desc = clean_html(snippets[i]) if i < len(snippets) else ""
+                  if title and url_val and url_val.startswith("http"):
+                      results.append({"title": title, "url": url_val, "description": desc, "type": "general"})
+              return results
+
+          def search_ddg_api(query, max_results):
+              results = []
+              encoded = urllib.parse.quote(query, safe="")
+              url = f"https://api.duckduckgo.com/?q={encoded}&format=json&no_html=1&skip_disambig=1"
+              html = http_get(url, timeout=15)
+              if not html: return results
+              try:
+                  data = json.loads(html)
+                  abstract = data.get("Abstract", "")
+                  abstract_url = data.get("AbstractURL", "")
+                  if abstract and abstract_url:
+                      results.append({"title": data.get("Heading", query), "url": abstract_url, "description": abstract, "type": "general"})
+                  for topic in data.get("RelatedTopics", []):
+                      if isinstance(topic, dict):
+                          t, u = topic.get("Text",""), topic.get("FirstURL","")
+                          if t and u: results.append({"title": t.split(".")[0][:100], "url": u, "description": t, "type": "general"})
+              except: pass
+              return results[:max_results]
+
+          def search_google(query, max_results):
+              results = []
+              encoded = urllib.parse.quote(query, safe="")
+              url = f"https://www.google.com/search?q={encoded}&num={max_results}&hl=en"
+              html = http_get(url, timeout=30)
+              if not html: return results
+              def clean_html(text):
+                  text = re.sub(r'<[^>]+>', '', str(text))
+                  for k, v in [('&amp;','&'),('&lt;','<'),('&gt;','>'),('&quot;','"'),("&#39;","'"),('&nbsp;',' ')]:
+                      text = text.replace(k, v)
+                  return re.sub(r'\s+', ' ', text).strip()
+              pattern = re.compile(r'<a[^>]+href="/url\?q=(https?://[^&"]*)[^"]*"[^>]*>(.*?)</a>.*?(?:<span[^>]*class="[^"]*(?:aCOpRe|st|VwiC3b)[^"]*"[^>]*>(.*?)</span>)?', re.DOTALL)
+              seen = set()
+              for raw_url, raw_title, raw_desc in pattern.findall(html):
+                  u, t = urllib.parse.unquote(clean_html(raw_url)), clean_html(raw_title)
+                  d = clean_html(raw_desc) if raw_desc else ""
+                  if "google.com" in u or u in seen: continue
+                  seen.add(u)
+                  if t and u: results.append({"title": t, "url": u, "description": d, "type": "general"})
+                  if len(results) >= max_results: break
+              return results
+
+          def search(query, max_results, search_type="general", safe_search="moderate", lang="auto", deep=False):
+              if deep: max_results = min(max_results * 3, 50)
+              all_results, seen_urls = [], set()
+              if search_type == "general":
+                  print("\n[1/3] DuckDuckGo Lite...")
+                  for r in search_ddg_lite(query, max_results):
+                      if r["url"] not in seen_urls: all_results.append(r); seen_urls.add(r["url"])
+                  if len(all_results) < max_results:
+                      print(f"\n[2/3] DuckDuckGo API...")
+                      for r in search_ddg_api(query, max_results):
+                          if r["url"] not in seen_urls: all_results.append(r); seen_urls.add(r["url"])
+                  if len(all_results) < max_results:
+                      print(f"\n[3/3] Google...")
+                      for r in search_google(query, max_results):
+                          if r["url"] not in seen_urls: all_results.append(r); seen_urls.add(r["url"])
+              else:
+                  print(f"\n[1/1] DDG Lite ({search_type})...")
+                  encoded = urllib.parse.quote(query, safe="")
+                  params = {"news": "df=w", "images": "iax=images&ia=images", "videos": "iax=videos&ia=videos"}.get(search_type, "")
+                  url = f"https://lite.duckduckgo.com/lite/?q={encoded}&{params}"
+                  html = http_get(url, timeout=30)
+                  if html:
+                      links = re.compile(r'<a[^>]+class="result-link"[^>]+href="([^"]*)"[^>]*>(.*?)</a>', re.DOTALL).findall(html)
+                      snippets = re.compile(r'<td[^>]+class="result-snippet"[^>]*>(.*?)</td>', re.DOTALL).findall(html)
+                      for i, (ru, rt) in enumerate(links):
+                          if i >= max_results: break
+                          t = re.sub(r'<[^>]+>', '', str(rt)).strip()
+                          u = re.sub(r'<[^>]+>', '', str(ru)).strip()
+                          if "uddg=" in u:
+                              try:
+                                  from urllib.parse import parse_qs, urlparse
+                                  qs = parse_qs(urlparse(u).query)
+                                  u = urllib.parse.unquote(qs["uddg"][0])
+                              except: pass
+                          d = re.sub(r'<[^>]+>', '', str(snippets[i])).strip() if i < len(snippets) else ""
+                          if t and u and u.startswith("http") and u not in seen_urls:
+                              all_results.append({"title": t, "url": u, "description": d, "type": search_type})
+                              seen_urls.add(u)
+              return all_results[:max_results]
+
+          def generate_ai_summary_g4f(results, query, provider="pollinations", model="auto"):
+              if not results: return ""
+              print(f"  AI Summary via g4f ({provider}/{model})...")
+              items = [f"- {r.get('title','')}: {r.get('description','')[:200]}" for r in results[:5]]
+              context = "\n".join(items)
+              prompt = (f'Based on these search results for "{query}", '
+                       f'provide a concise summary in 3-5 bullet points. '
+                       f'Use the same language as the query. '
+                       f'If Persian, respond in Persian.\n\nResults:\n{context}\n\nSummary:')
+
+              payload = json.dumps({
+                  "messages": [
+                      {"role": "system", "content": "You are a helpful search assistant. Summarize concisely. Respond in the same language as the query."},
+                      {"role": "user", "content": prompt}
+                  ],
+                  "model": model,
+                  "temperature": 0.3
+              }).encode("utf-8")
+
+              if provider == "pollinations":
+                  url = f"https://text.pollinations.ai/{model if model != 'auto' else 'openai'}"
+              else:
+                  base_url = G4F_PROVIDERS.get(provider)
+                  if not base_url: return f"(Unknown provider: {provider})"
+                  url = f"{base_url}/chat/completions"
+
+              req = urllib.request.Request(url, data=payload, method="POST")
+              req.add_header("Content-Type", "application/json")
+              req.add_header("User-Agent", "AI-Melli/2.0-g4f")
+
+              for attempt in range(3):
+                  try:
+                      with urllib.request.urlopen(req, timeout=60) as resp:
+                          raw = resp.read().decode("utf-8")
+                      try:
+                          parsed = json.loads(raw)
+                          if isinstance(parsed, dict):
+                              text = parsed.get("choices", [{}])[0].get("message", {}).get("content", "")
+                              if not text: text = parsed.get("content", "")
+                              if not text: text = str(parsed)
+                          else: text = str(parsed)
+                      except: text = raw
+                      return text.strip()
+                  except Exception as e:
+                      print(f"  Attempt {attempt+1} error: {e}")
+                      if attempt < 2: time.sleep(3)
+              return "(AI summary: all attempts failed)"
+
+          def format_results_markdown(results, query, search_type):
+              now = datetime.now(timezone(timedelta(hours=3, minutes=30)))
+              ts = now.strftime("%Y-%m-%d %H:%M:%S")
+              type_labels = {"general": "Web Search", "news": "News Search", "images": "Image Search", "videos": "Video Search"}
+              md = f"# Search Results\n\n| Key | Value |\n|-----|-------|\n"
+              md += f"| **Query** | {query} |\n| **Type** | {type_labels.get(search_type, search_type)} |\n"
+              md += f"| **Results** | {len(results)} |\n| **Date** | {ts} (Asia/Tehran) |\n\n---\n\n"
+              if not results:
+                  md += "> No results found. Try a different query or check spelling.\n"
+                  return md
+              for i, r in enumerate(results, 1):
+                  md += f"## {i}. {r['title']}\n\n"
+                  if r.get('url'): md += f"**URL:** [{r['url']}]({r['url']})\n\n"
+                  if r.get('description'): md += f"{r['description']}\n\n"
+                  md += "---\n\n"
+              return md
+
+          def main():
+              config_path = sys.argv[1] if len(sys.argv) > 1 else "/tmp/ai_melli_config.json"
+              with open(config_path) as f:
+                  cfg = json.load(f)
+
+              query = cfg["query"]
+              max_results = min(int(cfg.get("num_results", "10")), 20)
+              search_type = cfg.get("search_type", "general")
+              safe = cfg.get("safe_search", "moderate")
+              lang = cfg.get("language", "auto")
+              deep = cfg.get("deep_search", "false").lower() == "true"
+              ai_summary = cfg.get("include_ai_summary", "true").lower() == "true"
+              ai_prov = cfg.get("ai_summary_provider", "pollinations")
+              ai_model = cfg.get("ai_summary_model", "auto")
+              out_dir = cfg.get("output_dir", "output")
+              os.makedirs(out_dir, exist_ok=True)
+
+              print(f"=== AI Melli Search (g4f) ===")
+              print(f"Query: {query} | Type: {search_type} | Max: {max_results}")
+              print(f"AI Summary: {ai_summary} (Provider: {ai_prov}, Model: {ai_model})")
+
+              results = search(query, max_results, search_type, safe, lang)
+              print(f"\n=== Total results: {len(results)} ===")
+
+              md = format_results_markdown(results, query, search_type)
+
+              summary = ""
+              if ai_summary and results:
+                  summary = generate_ai_summary_g4f(results, query, ai_prov, ai_model)
+                  if summary:
+                      md = f"## AI Summary (via g4f: {ai_prov}/{ai_model})\n\n{summary}\n\n---\n\n" + md
+                      print(f"Summary: {summary[:100]}...")
+
+              timestamp = time.strftime("%Y%m%d_%H%M%S")
+              safe_q = "".join(c if c.isalnum() or c in "_-" else "_" for c in query[:40])
+
+              md_path = os.path.join(out_dir, f"search_{safe_q}_{timestamp}.md")
+              with open(md_path, "w", encoding="utf-8") as f:
+                  f.write(md)
+
+              json_path = os.path.join(out_dir, f"search_{safe_q}_{timestamp}.json")
+              with open(json_path, "w", encoding="utf-8") as f:
+                  json.dump({
+                      "query": query, "search_type": search_type, "timestamp": timestamp,
+                      "total_results": len(results), "ai_summary": summary,
+                      "ai_summary_provider": ai_prov, "ai_summary_model": ai_model,
+                      "results": results
+                  }, f, ensure_ascii=False, indent=2)
+
+              print(f"\nMarkdown: {md_path}")
+              print(f"JSON: {json_path}")
+              with open("/tmp/ai_melli_result.json", "w") as f:
+                  json.dump({"total": len(results), "md_file": md_path, "json_file": json_path}, f)
+
+          if __name__ == "__main__":
+              main()
+          PYEOF
+
+      # ======== Build Config & Run ========
+      - name: "🔍 Search (g4f)"
+        id: search
+        shell: bash
+        run: |
+          jq -n \
+            --arg query "${{ github.event.inputs.query }}" \
+            --arg num "${{ github.event.inputs.num_results }}" \
+            --arg type "${{ github.event.inputs.search_type }}" \
+            --arg safe "${{ github.event.inputs.safe_search }}" \
+            --arg lang "${{ github.event.inputs.language }}" \
+            --arg deep "${{ github.event.inputs.deep_search }}" \
+            --arg aiprov "${{ github.event.inputs.ai_summary_provider }}" \
+            --arg aimodel "${{ github.event.inputs.ai_summary_model }}" \
+            --arg ai "${{ github.event.inputs.include_ai_summary }}" \
+            --arg outdir "output" \
+            '{
+              query: $query,
+              num_results: ($num | tonumber),
+              search_type: $type,
+              safe_search: $safe,
+              language: $lang,
+              deep_search: $deep,
+              ai_summary_provider: $aiprov,
+              ai_summary_model: $aimodel,
+              include_ai_summary: $ai,
+              output_dir: $outdir
+            }' > /tmp/ai_melli_config.json
+
+          echo "Config:"
+          cat /tmp/ai_melli_config.json
+          echo ""
+
+          python3 scripts/web_search_g4f.py /tmp/ai_melli_config.json
+
+          if [ -f /tmp/ai_melli_result.json ]; then
+            echo "total=$(jq -r '.total' /tmp/ai_melli_result.json)" >> "$GITHUB_OUTPUT"
+          fi
+
+      # ======== Summary ========
+      - name: "📊 Summary"
+        if: always()
+        shell: bash
+        run: |
+          echo "╔═══════════════════════════════════════╗"
+          echo "║   Web Search (g4f) — Complete          ║"
+          echo "╠═══════════════════════════════════════╣"
+          echo "║ Query      : ${{ github.event.inputs.query }}"
+          echo "║ Type       : ${{ github.event.inputs.search_type }}"
+          echo "║ Results    : ${{ steps.search.outputs.total }}"
+          echo "║ AI Prov    : ${{ github.event.inputs.ai_summary_provider }}"
+          echo "╚═══════════════════════════════════════╝"
+
+      # ======== Upload to Repository ========
+      - name: "📦 Push to Repository"
+        if: github.event.inputs.upload_method == 'repository'
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add output/
+          git commit -m "Search(g4f/${{ github.event.inputs.ai_summary_provider }}): ${{ github.event.inputs.query }} [skip ci]" || echo "No changes"
+          git push
+
+      # ======== Upload to Release ========
+      - name: "🚀 Upload to Release"
+        if: github.event.inputs.upload_method == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.release_tag != '' && github.event.inputs.release_tag || format('g4f-search-{0}', github.run_number) }}
+          name: "Search (g4f) — ${{ github.event.inputs.query }}"
+          body: |
+            ## Web Search Results (g4f Enhanced)
+            - **Query:** ${{ github.event.inputs.query }}
+            - **Type:** ${{ github.event.inputs.search_type }}
+            - **Results:** ${{ steps.search.outputs.total }}
+            - **AI Summary:** ${{ github.event.inputs.include_ai_summary }}
+            - **AI Provider:** ${{ github.event.inputs.ai_summary_provider }}
+          files: output/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # ======== Cleanup ========
+      - name: "🧹 Cleanup"
+        if: always()
+        run: rm -rf output /tmp/ai_melli_*.json

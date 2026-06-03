@@ -1,0 +1,497 @@
+# ============================================================
+# 🤖 AI Melli — Multi-Provider AI Chat (NEW - g4f Only)
+# ============================================================
+# قابلیت جدید: چت همزمان با چندین پرووایدر AI
+# فقط با یکپارچه‌سازی g4f ممکن است
+# https://g4f.dev/docs/ready_to_use.html
+# ============================================================
+
+name: "🤖 Multi-Provider Chat (g4f)"
+
+on:
+  workflow_dispatch:
+    inputs:
+      prompt:
+        description: "پرامپت شما (هر زبانی)"
+        required: true
+        type: string
+
+      system_message:
+        description: "پیام سیستمی (نقش AI)"
+        required: false
+        default: "You are a helpful AI assistant. Respond in the same language as the user's prompt."
+        type: string
+
+      providers:
+        description: "پرووایدرها (کما-جدا, همه = همه)"
+        required: false
+        default: "pollinations,groq,gemini"
+        type: string
+
+      model:
+        description: "مدل (خالی = خودکار برای هر پرووایدر)"
+        required: false
+        default: "auto"
+        type: string
+
+      temperature:
+        description: "خلاصیت (0.0 - 2.0)"
+        required: false
+        default: "0.7"
+        type: string
+
+      max_tokens:
+        description: "حداکثر توکن"
+        required: false
+        default: "2048"
+        type: string
+
+      compare_mode:
+        description: "حالت مقایسه"
+        required: true
+        default: "all"
+        type: choice
+        options:
+          - all
+          - first_success
+          - consensus
+          - vote
+
+      upload_method:
+        description: "روش آپلود"
+        required: true
+        default: "repository"
+        type: choice
+        options:
+          - repository
+          - release
+
+      release_tag:
+        description: "تگ ریلیز"
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: write
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  chat:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: "📥 Checkout"
+        uses: actions/checkout@v5
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: "📁 Prepare"
+        shell: bash
+        run: mkdir -p scripts output
+
+      - name: "🐍 Create multi-provider chat script"
+        shell: bash
+        run: |
+          cat > scripts/multi_chat_g4f.py << 'PYEOF'
+          #!/usr/bin/env python3
+          """
+          AI Melli — Multi-Provider AI Chat (g4f)
+          Query multiple AI providers simultaneously and compare responses
+          """
+          import urllib.request, urllib.parse, json, sys, os, time, threading
+          from concurrent.futures import ThreadPoolExecutor, as_completed
+
+          PROVIDERS = {
+              "pollinations": {
+                  "url": "https://text.pollinations.ai",
+                  "type": "pollinations",
+                  "models": {"auto": "openai", "openai": "openai", "openai-large": "openai-large",
+                             "openai-reasoning": "openai-reasoning", "openai-fast": "openai-fast"},
+                  "desc": "Pollinations AI (free)"
+              },
+              "groq": {
+                  "url": "https://g4f.space/api/groq",
+                  "type": "openai",
+                  "models": {"auto": "llama-3.1-70b-versatile", "llama-3.1-70b": "llama-3.1-70b-versatile",
+                             "llama-3.1-8b": "llama-3.1-8b-versatile", "mixtral": "mixtral-8x7b-32768"},
+                  "desc": "Groq (ultra-fast)"
+              },
+              "ollama": {
+                  "url": "https://g4f.space/api/ollama",
+                  "type": "openai",
+                  "models": {"auto": "llama3.1", "llama3.1": "llama3.1", "llama3": "llama3",
+                             "mistral": "mistral", "phi3": "phi3", "gemma2": "gemma2"},
+                  "desc": "Ollama (open-source)"
+              },
+              "nvidia": {
+                  "url": "https://g4f.space/api/nvidia",
+                  "type": "openai",
+                  "models": {"auto": "meta/llama-3.1-405b-instruct"},
+                  "desc": "NVIDIA NIM"
+              },
+              "gemini": {
+                  "url": "https://g4f.space/api/gemini",
+                  "type": "openai",
+                  "models": {"auto": "gemini-2.0-flash", "gemini-2.0-flash": "gemini-2.0-flash"},
+                  "desc": "Google Gemini"
+              },
+              "auto": {
+                  "url": "https://g4f.space/api/auto",
+                  "type": "openai",
+                  "models": {"auto": "auto"},
+                  "desc": "g4f Auto (best provider)"
+              },
+              "deepinfra": {
+                  "url": "https://api.deepinfra.com/v1",
+                  "type": "openai",
+                  "models": {"auto": "meta-llama/Meta-Llama-3.1-405B-Instruct"},
+                  "desc": "DeepInfra"
+              },
+              "openrouter": {
+                  "url": "https://openrouter.ai/api/v1",
+                  "type": "openai",
+                  "models": {"auto": "openai/gpt-4o-mini", "gpt-4o-mini": "openai/gpt-4o-mini",
+                             "gpt-4o": "openai/gpt-4o", "claude-3.5-sonnet": "anthropic/claude-3.5-sonnet"},
+                  "desc": "OpenRouter (many models)"
+              },
+              "together": {
+                  "url": "https://api.together.xyz/v1",
+                  "type": "openai",
+                  "models": {"auto": "meta-llama/Llama-3.2-90B-Vision-Instruct-Turbo"},
+                  "desc": "Together AI"
+              },
+              "xai": {
+                  "url": "https://api.x.ai/v1",
+                  "type": "openai",
+                  "models": {"auto": "grok-beta", "grok-beta": "grok-beta"},
+                  "desc": "xAI (Grok)"
+              },
+              "grok": {
+                  "url": "https://api.grok.com/v1",
+                  "type": "openai",
+                  "models": {"auto": "grok-3", "grok-3": "grok-3", "grok-3-fast": "grok-3-fast"},
+                  "desc": "Grok (xAI direct)"
+              },
+              "api-airforce": {
+                  "url": "https://api.airforce/v1",
+                  "type": "openai",
+                  "models": {"auto": "auto"},
+                  "desc": "ApiAirforce"
+              },
+          }
+
+          def query_provider(provider_name, prompt, system_message, temperature, max_tokens, model_input):
+              """Query a single provider and return result."""
+              prov = PROVIDERS.get(provider_name)
+              if not prov:
+                  return {"provider": provider_name, "status": "error", "error": f"Unknown provider"}
+
+              model = prov["models"].get(model_input, prov["models"].get("auto", "auto"))
+
+              try:
+                  payload = json.dumps({
+                      "model": model,
+                      "temperature": temperature,
+                      "max_tokens": int(max_tokens),
+                      "messages": [
+                          {"role": "system", "content": system_message},
+                          {"role": "user", "content": prompt}
+                      ],
+                  }).encode("utf-8")
+
+                  if prov["type"] == "pollinations":
+                      url = f"{prov['url']}/{model}"
+                  else:
+                      url = f"{prov['url']}/chat/completions"
+
+                  req = urllib.request.Request(url, data=payload, method="POST")
+                  req.add_header("Content-Type", "application/json")
+                  req.add_header("User-Agent", "AI-Melli/2.0-g4f")
+
+                  start = time.time()
+                  with urllib.request.urlopen(req, timeout=90) as resp:
+                      raw = resp.read().decode("utf-8")
+                  elapsed = time.time() - start
+
+                  try:
+                      parsed = json.loads(raw)
+                      if isinstance(parsed, dict):
+                          text = parsed.get("choices", [{}])[0].get("message", {}).get("content", "")
+                          if not text: text = parsed.get("content", "")
+                          if not text: text = json.dumps(parsed, ensure_ascii=False, indent=2)[:2000]
+                      else:
+                          text = str(parsed)
+                  except:
+                      text = raw[:2000]
+
+                  return {
+                      "provider": provider_name,
+                      "desc": prov["desc"],
+                      "model": model,
+                      "status": "success",
+                      "text": text.strip(),
+                      "chars": len(text),
+                      "words": len(text.split()),
+                      "time": round(elapsed, 2)
+                  }
+              except Exception as e:
+                  return {
+                      "provider": provider_name,
+                      "desc": prov.get("desc", ""),
+                      "model": model,
+                      "status": "error",
+                      "error": str(e)[:200]
+                  }
+
+          def find_consensus(responses):
+              """Simple consensus: find common themes across successful responses."""
+              successful = [r for r in responses if r["status"] == "success"]
+              if len(successful) < 2:
+                  return ""
+              try:
+                  # Use the first successful provider to summarize
+                  items = [f"[{r['provider']}]: {r['text'][:300]}" for r in successful[:4]]
+                  context = "\n".join(items)
+                  payload = json.dumps({
+                      "messages": [
+                          {"role": "system", "content": "Find common themes and consensus among these AI responses. Summarize in 3-5 bullet points."},
+                          {"role": "user", "content": f"Here are responses from multiple AI providers:\n\n{context}\n\nCommon themes and consensus:"}
+                      ],
+                      "model": "openai",
+                      "temperature": 0.3
+                  }).encode("utf-8")
+                  url = "https://text.pollinations.ai/openai"
+                  req = urllib.request.Request(url, data=payload, method="POST")
+                  req.add_header("Content-Type", "application/json")
+                  req.add_header("User-Agent", "AI-Melli/2.0-g4f")
+                  with urllib.request.urlopen(req, timeout=60) as resp:
+                      raw = resp.read().decode("utf-8")
+                  parsed = json.loads(raw)
+                  return parsed.get("choices", [{}])[0].get("message", {}).get("content", "")
+              except Exception as e:
+                  return f"(Consensus analysis failed: {str(e)[:100]})"
+
+          def main():
+              config_path = sys.argv[1] if len(sys.argv) > 1 else "/tmp/ai_melli_config.json"
+              with open(config_path) as f:
+                  cfg = json.load(f)
+
+              prompt = cfg["prompt"]
+              system_message = cfg.get("system_message", "You are a helpful AI assistant.")
+              providers_str = cfg.get("providers", "pollinations,groq,gemini")
+              model_input = cfg.get("model", "auto")
+              temperature = float(cfg.get("temperature", "0.7"))
+              max_tokens = int(cfg.get("max_tokens", "2048"))
+              compare_mode = cfg.get("compare_mode", "all")
+              out_dir = cfg.get("output_dir", "output")
+              os.makedirs(out_dir, exist_ok=True)
+
+              # Resolve providers
+              if providers_str.strip().lower() in ("all", "همه"):
+                  target_providers = list(PROVIDERS.keys())
+              else:
+                  target_providers = [p.strip() for p in providers_str.split(",") if p.strip() in PROVIDERS]
+
+              print(f"=== AI Melli Multi-Provider Chat ===")
+              print(f"Prompt: {prompt[:100]}...")
+              print(f"Providers: {', '.join(target_providers)}")
+              print(f"Mode: {compare_mode}")
+              print(f"Model: {model_input} | Temp: {temperature} | MaxTokens: {max_tokens}")
+              print()
+
+              # Query providers in parallel
+              responses = []
+              start_all = time.time()
+              with ThreadPoolExecutor(max_workers=min(len(target_providers), 5)) as executor:
+                  futures = {
+                      executor.submit(query_provider, p, prompt, system_message, temperature, max_tokens, model_input): p
+                      for p in target_providers
+                  }
+                  for future in as_completed(futures):
+                      prov = futures[future]
+                      try:
+                          result = future.result()
+                          responses.append(result)
+                          status_icon = "✅" if result["status"] == "success" else "❌"
+                          if result["status"] == "success":
+                              print(f"  {status_icon} {prov}: {result['chars']} chars, {result['time']}s")
+                          else:
+                              print(f"  {status_icon} {prov}: {result['error'][:80]}")
+                      except Exception as e:
+                          responses.append({"provider": prov, "status": "error", "error": str(e)[:200]})
+                          print(f"  ❌ {prov}: {str(e)[:80]}")
+
+              total_time = round(time.time() - start_all, 2)
+
+              # Sort by provider name
+              responses.sort(key=lambda x: x["provider"])
+
+              # Apply compare mode
+              if compare_mode == "first_success":
+                  for r in responses:
+                      if r["status"] == "success":
+                          responses = [r]
+                          print(f"\n⚡ First success mode: using {r['provider']}")
+                          break
+
+              # Generate consensus if requested
+              consensus = ""
+              if compare_mode in ("consensus", "vote") and len([r for r in responses if r["status"] == "success"]) >= 2:
+                  print("\n🔍 Generating consensus analysis...")
+                  consensus = find_consensus(responses)
+
+              # Build markdown output
+              ts = time.strftime("%Y%m%d_%H%M%S")
+              md = f"# Multi-Provider AI Chat Results\n\n"
+              md += f"| Key | Value |\n|-----|-------|\n"
+              md += f"| **Prompt** | {prompt} |\n"
+              md += f"| **Providers** | {', '.join(target_providers)} |\n"
+              md += f"| **Mode** | {compare_mode} |\n"
+              md += f"| **Model** | {model_input} |\n"
+              md += f"| **Total Time** | {total_time}s |\n"
+              md += f"| **Date** | {time.strftime('%Y-%m-%d %H:%M:%S')} |\n\n"
+
+              successful = [r for r in responses if r["status"] == "success"]
+              failed = [r for r in responses if r["status"] != "success"]
+              md += f"**Results:** {len(successful)} success, {len(failed)} failed\n\n"
+              md += "---\n\n"
+
+              if consensus:
+                  md += f"## Consensus Analysis\n\n{consensus}\n\n---\n\n"
+
+              for i, r in enumerate(responses, 1):
+                  icon = "✅" if r["status"] == "success" else "❌"
+                  md += f"## {i}. {icon} {r['provider']} ({r.get('desc', '')})\n\n"
+                  md += f"| Detail | Value |\n|-----|-------|\n"
+                  md += f"| **Model** | {r.get('model', 'N/A')} |\n"
+                  if r["status"] == "success":
+                      md += f"| **Chars** | {r['chars']} |\n"
+                      md += f"| **Words** | {r['words']} |\n"
+                      md += f"| **Response Time** | {r['time']}s |\n\n"
+                      md += f"### Response\n\n{r['text']}\n\n"
+                  else:
+                      md += f"| **Error** | {r.get('error', 'Unknown')} |\n\n"
+                  md += "---\n\n"
+
+              # Save markdown
+              md_path = os.path.join(out_dir, f"chat_multi_{ts}.md")
+              with open(md_path, "w", encoding="utf-8") as f:
+                  f.write(md)
+
+              # Save JSON
+              json_path = os.path.join(out_dir, f"chat_multi_{ts}.json")
+              with open(json_path, "w", encoding="utf-8") as f:
+                  json.dump({
+                      "prompt": prompt,
+                      "providers": target_providers,
+                      "mode": compare_mode,
+                      "total_time": total_time,
+                      "consensus": consensus,
+                      "responses": responses
+                  }, f, ensure_ascii=False, indent=2)
+
+              print(f"\n=== Done in {total_time}s ===")
+              print(f"Markdown: {md_path}")
+              print(f"JSON: {json_path}")
+
+              with open("/tmp/ai_melli_result.json", "w") as f:
+                  json.dump({
+                      "total": len(responses),
+                      "success": len(successful),
+                      "failed": len(failed),
+                      "total_time": total_time,
+                      "md_file": md_path,
+                      "json_file": json_path
+                  }, f)
+
+          if __name__ == "__main__":
+              main()
+          PYEOF
+
+      - name: "🤖 Multi-Provider Chat"
+        id: chat
+        shell: bash
+        run: |
+          jq -n \
+            --arg prompt "${{ github.event.inputs.prompt }}" \
+            --arg sys "${{ github.event.inputs.system_message }}" \
+            --arg providers "${{ github.event.inputs.providers }}" \
+            --arg model "${{ github.event.inputs.model }}" \
+            --arg temp "${{ github.event.inputs.temperature }}" \
+            --arg maxtok "${{ github.event.inputs.max_tokens }}" \
+            --arg mode "${{ github.event.inputs.compare_mode }}" \
+            --arg outdir "output" \
+            '{
+              prompt: $prompt,
+              system_message: $sys,
+              providers: $providers,
+              model: $model,
+              temperature: ($temp | tonumber),
+              max_tokens: $maxtok,
+              compare_mode: $mode,
+              output_dir: $outdir
+            }' > /tmp/ai_melli_config.json
+
+          echo "Config:"
+          cat /tmp/ai_melli_config.json
+          echo ""
+
+          python3 scripts/multi_chat_g4f.py /tmp/ai_melli_config.json
+
+          if [ -f /tmp/ai_melli_result.json ]; then
+            echo "total=$(jq -r '.total' /tmp/ai_melli_result.json)" >> "$GITHUB_OUTPUT"
+            echo "success=$(jq -r '.success' /tmp/ai_melli_result.json)" >> "$GITHUB_OUTPUT"
+            echo "failed=$(jq -r '.failed' /tmp/ai_melli_result.json)" >> "$GITHUB_OUTPUT"
+            echo "time=$(jq -r '.total_time' /tmp/ai_melli_result.json)" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: "📊 Summary"
+        if: always()
+        shell: bash
+        run: |
+          echo "╔═══════════════════════════════════════╗"
+          echo "║   Multi-Provider Chat — Complete       ║"
+          echo "╠═══════════════════════════════════════╣"
+          echo "║ Providers: ${{ github.event.inputs.providers }}"
+          echo "║ Mode     : ${{ github.event.inputs.compare_mode }}"
+          echo "║ Total    : ${{ steps.chat.outputs.total }}"
+          echo "║ Success  : ${{ steps.chat.outputs.success }}"
+          echo "║ Failed   : ${{ steps.chat.outputs.failed }}"
+          echo "║ Time     : ${{ steps.chat.outputs.time }}s"
+          echo "╚═══════════════════════════════════════╝"
+
+      - name: "📦 Push to Repository"
+        if: github.event.inputs.upload_method == 'repository'
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add output/
+          git commit -m "MultiChat(g4f): ${{ github.event.inputs.prompt }} [skip ci]" || echo "No changes"
+          git push
+
+      - name: "🚀 Upload to Release"
+        if: github.event.inputs.upload_method == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.release_tag != '' && github.event.inputs.release_tag || format('g4f-chat-{0}', github.run_number) }}
+          name: "Multi-Chat (g4f) — ${{ github.event.inputs.compare_mode }}"
+          body: |
+            ## Multi-Provider AI Chat
+            - **Prompt:** ${{ github.event.inputs.prompt }}
+            - **Providers:** ${{ github.event.inputs.providers }}
+            - **Mode:** ${{ github.event.inputs.compare_mode }}
+            - **Results:** ${{ steps.chat.outputs.success }}/${{ steps.chat.outputs.total }} success
+            - **Time:** ${{ steps.chat.outputs.time }}s
+          files: output/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: "🧹 Cleanup"
+        if: always()
+        run: rm -rf output /tmp/ai_melli_*.json

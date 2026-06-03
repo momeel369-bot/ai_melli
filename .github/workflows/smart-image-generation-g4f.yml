@@ -1,0 +1,510 @@
+# ============================================================
+# 🧠 AI Melli — Smart Image Generation (g4f Enhanced)
+# ============================================================
+# یکپارچه‌سازی با g4f: انتخاب پرووایدر برای ارتقای پرامپت
+# https://g4f.dev/docs/ready_to_use.html
+# ============================================================
+
+name: "🧠 Smart Image (g4f Enhanced)"
+
+on:
+  workflow_dispatch:
+    inputs:
+      prompt:
+        description: "پرامپت (هر زبانی، AI بهینه‌سازی می‌کند)"
+        required: true
+        type: string
+
+      negative_prompt:
+        description: "نپرامپت منفی (چه چیزی نباشد)"
+        required: false
+        default: ""
+        type: string
+
+      image_model:
+        description: "مدل تصویرساز"
+        required: true
+        default: "flux"
+        type: choice
+        options:
+          - flux
+          - turbo
+          - flux-realism
+          - flux-cablyai
+          - flux-anime
+          - flux-3d
+          - flux-pro
+          - any-dark
+
+      enhance_provider:
+        description: "پرووایدر ارتقای پرامپت (g4f)"
+        required: true
+        default: "pollinations"
+        type: choice
+        options:
+          - pollinations
+          - groq
+          - ollama
+          - nvidia
+          - gemini
+          - auto
+          - deepinfra
+          - openrouter
+          - together
+          - xai
+          - grok
+          - api-airforce
+
+      enhance_model:
+        description: "مدل ارتقای پرامپت"
+        required: false
+        default: "auto"
+        type: string
+
+      width:
+        description: "عرض (پیکسل)"
+        required: false
+        default: "1024"
+        type: string
+
+      height:
+        description: "ارتفاع (پیکسل)"
+        required: false
+        default: "1024"
+        type: string
+
+      num_images:
+        description: "تعداد تصاویر (1-10)"
+        required: false
+        default: "1"
+        type: string
+
+      seed:
+        description: "سید (خالی = تصادفی)"
+        required: false
+        default: ""
+        type: string
+
+      upload_method:
+        description: "روش آپلود"
+        required: true
+        default: "repository"
+        type: choice
+        options:
+          - repository
+          - release
+
+      release_tag:
+        description: "تگ ریلیز (خالی = خودکار)"
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: write
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  smart-generate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: "📥 Checkout"
+        uses: actions/checkout@v5
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: "📁 Prepare scripts"
+        shell: bash
+        run: mkdir -p scripts
+
+      - name: "🐍 Create smart image generator (g4f)"
+        shell: bash
+        run: |
+          cat > scripts/smart_generate_g4f.py << 'PYEOF'
+          #!/usr/bin/env python3
+          """
+          AI Melli — Smart Image Generation with g4f Enhanced Prompt
+          Uses g4f providers for prompt enhancement + Pollinations for image gen
+          """
+          import urllib.request, urllib.parse, json, sys, os, time, random
+
+          # g4f Provider Base URLs
+          G4F_PROVIDERS = {
+              "pollinations": "https://text.pollinations.ai",
+              "groq": "https://g4f.space/api/groq",
+              "ollama": "https://g4f.space/api/ollama",
+              "nvidia": "https://g4f.space/api/nvidia",
+              "gemini": "https://g4f.space/api/gemini",
+              "auto": "https://g4f.space/api/auto",
+              "deepinfra": "https://api.deepinfra.com/v1",
+              "openrouter": "https://openrouter.ai/api/v1",
+              "together": "https://api.together.xyz/v1",
+              "xai": "https://api.x.ai/v1",
+              "grok": "https://api.grok.com/v1",
+              "api-airforce": "https://api.airforce/v1",
+          }
+
+          def enhance_prompt_g4f(prompt, negative="", provider="pollinations", model="auto"):
+              """Enhance prompt using g4f provider."""
+              sys_p = ("You are a master AI image prompt engineer. The user gives you a prompt "
+                       "(may be in any language). Your job: "
+                       "1) Translate to English if needed. "
+                       "2) Add detailed style, lighting, composition, mood, quality descriptors. "
+                       "3) Specify art style, camera angle, color palette where appropriate. "
+                       "4) Return ONLY the improved English prompt. No explanations, no quotes, no markdown.")
+
+              user_msg = f"User prompt: {prompt}"
+              if negative:
+                  user_msg += f". Also avoid: {negative}"
+
+              payload = json.dumps({
+                  "messages": [
+                      {"role": "system", "content": sys_p},
+                      {"role": "user", "content": user_msg}
+                  ],
+                  "model": model,
+                  "temperature": 0.7
+              }).encode("utf-8")
+
+              if provider == "pollinations":
+                  url = f"https://text.pollinations.ai/{model if model != 'auto' else 'openai'}"
+                  req = urllib.request.Request(url, data=payload, method="POST")
+                  req.add_header("Content-Type", "application/json")
+                  req.add_header("User-Agent", "AI-Melli/2.0-g4f")
+                  with urllib.request.urlopen(req, timeout=60) as resp:
+                      raw = resp.read().decode("utf-8")
+              else:
+                  base_url = G4F_PROVIDERS.get(provider)
+                  if not base_url:
+                      raise ValueError(f"Unknown provider: {provider}")
+                  url = f"{base_url}/chat/completions"
+                  req = urllib.request.Request(url, data=payload, method="POST")
+                  req.add_header("Content-Type", "application/json")
+                  req.add_header("User-Agent", "AI-Melli/2.0-g4f")
+                  with urllib.request.urlopen(req, timeout=60) as resp:
+                      raw = resp.read().decode("utf-8")
+
+              try:
+                  parsed = json.loads(raw)
+                  if isinstance(parsed, dict):
+                      text = parsed.get("choices", [{}])[0].get("message", {}).get("content", "")
+                      if not text: text = parsed.get("content", "")
+                      if not text: text = str(parsed)
+                  else:
+                      text = str(parsed)
+              except:
+                  text = raw
+
+              return text.strip().strip('"').strip("'")[:1000]
+
+          def generate_image(prompt, output_path, model="flux", width=1024, height=1024,
+                             seed=None, nologo=True, negative=None, retries=2):
+              """Generate image via Pollinations API."""
+              encoded = urllib.parse.quote(prompt, safe='')
+              params = {"width": width, "height": height, "model": model,
+                        "nologo": str(nologo).lower(), "nofeed": "true"}
+              if seed is not None:
+                  params["seed"] = seed
+              if negative:
+                  params["negative"] = urllib.parse.quote(negative, safe='')
+              query = "&".join(f"{k}={v}" for k, v in params.items())
+              url = f"https://image.pollinations.ai/prompt/{encoded}?{query}"
+              print(f"  URL: {url[:150]}...")
+              for attempt in range(retries + 1):
+                  try:
+                      req = urllib.request.Request(url)
+                      req.add_header("User-Agent", "AI-Melli/2.0-g4f")
+                      with urllib.request.urlopen(req, timeout=180) as resp:
+                          data = resp.read()
+                      if len(data) < 500:
+                          print(f"  Too small ({len(data)} bytes), retrying...")
+                          continue
+                      with open(output_path, "wb") as f:
+                          f.write(data)
+                      print(f"  OK: {output_path} ({len(data)/1024:.1f} KB)")
+                      return True
+                  except Exception as e:
+                      print(f"  Attempt {attempt+1} error: {e}")
+                      if attempt < retries:
+                          time.sleep(5)
+              return False
+
+          def main():
+              config_path = sys.argv[1] if len(sys.argv) > 1 else "/tmp/ai_melli_config.json"
+              with open(config_path) as f:
+                  cfg = json.load(f)
+
+              original = cfg["prompt"]
+              negative = cfg.get("negative_prompt", "")
+              img_model = cfg.get("image_model", "flux")
+              enhance_prov = cfg.get("enhance_provider", "pollinations")
+              enhance_mdl = cfg.get("enhance_model", "auto")
+              width = int(cfg.get("width", "1024"))
+              height = int(cfg.get("height", "1024"))
+              num = min(int(cfg.get("num_images", "1")), 10)
+              seed_str = cfg.get("seed", "")
+              out_dir = cfg.get("output_dir", "output")
+              os.makedirs(out_dir, exist_ok=True)
+
+              print("=== Step 1: Enhance Prompt (g4f) ===")
+              print(f"Provider: {enhance_prov}")
+              print(f"Model: {enhance_mdl}")
+              print(f"Original: {original}")
+
+              try:
+                  enhanced = enhance_prompt_g4f(original, negative, enhance_prov, enhance_mdl)
+                  print(f"Enhanced: {enhanced}")
+                  final = enhanced
+                  was_enhanced = True
+              except Exception as e:
+                  print(f"Enhancement failed: {e}, using original")
+                  final = original
+                  was_enhanced = False
+
+              print("\n=== Step 2: Generate Images ===")
+              base_seed = None
+              if seed_str and seed_str.strip():
+                  try: base_seed = int(seed_str)
+                  except: base_seed = random.randint(1, 999999)
+
+              ok, fail = 0, 0
+              files = []
+              for i in range(1, num + 1):
+                  print(f"\n--- Image {i}/{num} ---")
+                  cs = base_seed + i - 1 if base_seed is not None else random.randint(1, 999999)
+                  safe = "".join(c if c.isalnum() or c in "_-" else "_" for c in final[:50])
+                  ts = time.strftime("%Y%m%d_%H%M%S")
+                  op = os.path.join(out_dir, f"{safe}_{ts}_{i}.png")
+                  if generate_image(final, op, img_model, width, height, cs, True, negative or None):
+                      ok += 1
+                      files.append(os.path.basename(op))
+                  else:
+                      fail += 1
+                      if os.path.exists(op): os.remove(op)
+                  if i < num: time.sleep(3)
+
+              result = {
+                  "success": ok, "failed": fail, "enhanced": was_enhanced,
+                  "original_prompt": original, "final_prompt": final,
+                  "enhance_provider": enhance_prov, "enhance_model": enhance_mdl,
+                  "files": files
+              }
+              with open("/tmp/ai_melli_result.json", "w") as f:
+                  json.dump(result, f)
+              print(f"\n=== {ok} ok, {fail} failed ===")
+              if ok == 0: sys.exit(1)
+
+          if __name__ == "__main__":
+              main()
+          PYEOF
+
+      # ======== Build Config & Run ========
+      - name: "🧠 Smart Generate (g4f)"
+        id: gen
+        shell: bash
+        run: |
+          jq -n \
+            --arg prompt "${{ github.event.inputs.prompt }}" \
+            --arg negative "${{ github.event.inputs.negative_prompt }}" \
+            --arg imgmodel "${{ github.event.inputs.image_model }}" \
+            --arg enhprov "${{ github.event.inputs.enhance_provider }}" \
+            --arg enhmdl "${{ github.event.inputs.enhance_model }}" \
+            --arg width "${{ github.event.inputs.width }}" \
+            --arg height "${{ github.event.inputs.height }}" \
+            --arg num "${{ github.event.inputs.num_images }}" \
+            --arg seed "${{ github.event.inputs.seed }}" \
+            --arg outdir "output" \
+            '{
+              prompt: $prompt,
+              negative_prompt: $negative,
+              image_model: $imgmodel,
+              enhance_provider: $enhprov,
+              enhance_model: $enhmdl,
+              width: $width,
+              height: $height,
+              num_images: $num,
+              seed: $seed,
+              output_dir: $outdir
+            }' > /tmp/ai_melli_config.json
+
+          echo "Config:"
+          cat /tmp/ai_melli_config.json
+          echo ""
+
+          python3 scripts/smart_generate_g4f.py /tmp/ai_melli_config.json
+
+          if [ -f /tmp/ai_melli_result.json ]; then
+            echo "success=$(jq -r '.success' /tmp/ai_melli_result.json)" >> "$GITHUB_OUTPUT"
+            echo "failed=$(jq -r '.failed' /tmp/ai_melli_result.json)" >> "$GITHUB_OUTPUT"
+            echo "enhanced=$(jq -r '.enhanced' /tmp/ai_melli_result.json)" >> "$GITHUB_OUTPUT"
+            echo "final_prompt=$(jq -r '.final_prompt' /tmp/ai_melli_result.json)" >> "$GITHUB_OUTPUT"
+            echo "enhance_provider=$(jq -r '.enhance_provider' /tmp/ai_melli_result.json)" >> "$GITHUB_OUTPUT"
+          fi
+
+          echo ""
+          echo "Generated files:"
+          ls -lh output/ 2>/dev/null || echo "No files"
+
+      # ======== Build Gallery ========
+      - name: "🖼️ Build HTML Gallery"
+        if: success()
+        shell: bash
+        run: |
+          mkdir -p output/gallery/images
+          cp output/*.png output/gallery/images/ 2>/dev/null || true
+
+          ORIG="${{ github.event.inputs.prompt }}"
+          ENHANCED="${{ steps.gen.outputs.enhanced }}"
+          FINAL="${{ steps.gen.outputs.final_prompt }}"
+          ENH_PROV="${{ steps.gen.outputs.enhance_provider }}"
+          MODEL="${{ github.event.inputs.image_model }}"
+          OK="${{ steps.gen.outputs.success }}"
+          FAIL="${{ steps.gen.outputs.failed }}"
+          TS=$(date '+%Y-%m-%d %H:%M:%S')
+
+          CARDS=""
+          for img in output/gallery/images/*.png; do
+            [ -f "$img" ] || continue
+            N=$(basename "$img")
+            S=$(du -h "$img" | cut -f1)
+            CARDS+="          <div class=\"card\">
+            <img src=\"images/${N}\" alt=\"AI Generated\" loading=\"lazy\">
+            <div class=\"info\"><span>${N}</span><span>${S}</span></div>
+          </div>
+"
+          done
+
+          cat > output/gallery/index.html << GALEOF
+          <!DOCTYPE html>
+          <html lang="fa" dir="rtl">
+          <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>AI Melli — Smart Image (g4f)</title>
+            <style>
+              *{margin:0;padding:0;box-sizing:border-box}
+              body{font-family:'Segoe UI',Tahoma,sans-serif;background:linear-gradient(135deg,#0f0c29,#302b63,#24243e);color:#e0e0e0;min-height:100vh;padding:2rem}
+              .c{max-width:1200px;margin:0 auto}
+              .h{text-align:center;margin-bottom:2rem;padding:2rem;background:rgba(255,255,255,.05);border-radius:20px;border:1px solid rgba(255,255,255,.1)}
+              .h h1{font-size:2.2rem;background:linear-gradient(90deg,#a18cd1,#fbc2eb,#a6c1ee);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+              .h .s{color:#888;margin-top:.5rem}
+              .h .g4f{color:#a18cd1;font-size:.85rem;margin-top:.3rem}
+              .m{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:1rem;margin-bottom:2rem}
+              .m div{background:rgba(255,255,255,.05);padding:1rem;border-radius:12px;border:1px solid rgba(255,255,255,.08)}
+              .m .l{font-size:.7rem;color:#888;text-transform:uppercase;letter-spacing:1px}
+              .m .v{font-size:.95rem;margin-top:.3rem}
+              .p{background:rgba(255,255,255,.03);padding:1.5rem;border-radius:12px;border:1px solid rgba(255,255,255,.08);margin-bottom:2rem}
+              .p .l{font-size:.7rem;color:#888;text-transform:uppercase;letter-spacing:1px;margin-bottom:.5rem}
+              .p .o{color:#999;font-size:.9rem;margin-bottom:.3rem}
+              .p .e{color:#a18cd1;font-size:1rem}
+              .st{display:flex;gap:1rem;margin-bottom:2rem}
+              .b{padding:.4rem 1.2rem;border-radius:50px;font-weight:600;font-size:.85rem}
+              .b-ok{background:rgba(76,175,80,.2);color:#81c784}
+              .b-fl{background:rgba(244,67,54,.2);color:#ef9a9a}
+              .g{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:1.5rem}
+              .card{background:rgba(255,255,255,.05);border-radius:16px;overflow:hidden;border:1px solid rgba(255,255,255,.08);transition:transform .3s,box-shadow .3s}
+              .card:hover{transform:translateY(-4px);box-shadow:0 15px 30px rgba(0,0,0,.3)}
+              .card img{width:100%;display:block;background:#1a1a2e}
+              .card .info{padding:.7rem 1rem;display:flex;justify-content:space-between;font-size:.8rem;color:#aaa}
+              .ft{text-align:center;margin-top:2rem;color:#555;font-size:.8rem}
+            </style>
+          </head>
+          <body>
+            <div class="c">
+              <div class="h">
+                <h1>AI Melli</h1>
+                <p class="s">Smart AI Image Generation</p>
+                <p class="g4f">Powered by g4f (${ENH_PROV})</p>
+              </div>
+              <div class="m">
+                <div><div class="l">Image Model</div><div class="v">${MODEL}</div></div>
+                <div><div class="l">Enhance Provider</div><div class="v">${ENH_PROV}</div></div>
+                <div><div class="l">Date</div><div class="v">${TS}</div></div>
+                <div><div class="l">Size</div><div class="v">${{ github.event.inputs.width }} x ${{ github.event.inputs.height }}</div></div>
+                <div><div class="l">Enhanced</div><div class="v">${ENHANCED}</div></div>
+              </div>
+              <div class="p">
+                <div class="l">Prompt</div>
+                <div class="o">Original: ${ORIG}</div>
+          GALEOF
+
+          if [[ "$ENHANCED" == "true" ]]; then
+            echo "                <div class=\"e\">Enhanced: ${FINAL}</div>" >> output/gallery/index.html
+          fi
+
+          cat >> output/gallery/index.html << GALEOF
+              </div>
+              <div class="st">
+                <span class="b b-ok">Success: ${OK}</span>
+                <span class="b b-fl">Failed: ${FAIL}</span>
+              </div>
+              <div class="g">
+          ${CARDS}
+              </div>
+              <div class="ft"><p>AI Melli — Smart Image Generation (g4f Enhanced)</p></div>
+            </div>
+          </body>
+          </html>
+          GALEOF
+
+          echo "Gallery built!"
+
+      # ======== Summary ========
+      - name: "📊 Summary"
+        if: always()
+        shell: bash
+        run: |
+          echo "╔═══════════════════════════════════════╗"
+          echo "║   Smart Image (g4f) — Complete        ║"
+          echo "╠═══════════════════════════════════════╣"
+          echo "║ Image Model  : ${{ github.event.inputs.image_model }}"
+          echo "║ Enhance Prov : ${{ steps.gen.outputs.enhance_provider }}"
+          echo "║ Enhanced     : ${{ steps.gen.outputs.enhanced }}"
+          echo "║ Success      : ${{ steps.gen.outputs.success }}"
+          echo "║ Failed       : ${{ steps.gen.outputs.failed }}"
+          echo "╚═══════════════════════════════════════╝"
+
+      # ======== Upload to Repository ========
+      - name: "📦 Push to Repository"
+        if: github.event.inputs.upload_method == 'repository'
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add output/
+          git commit -m "SmartImage(g4f/${{ github.event.inputs.enhance_provider }}): ${{ github.event.inputs.prompt }} [skip ci]" || echo "No changes"
+          git push
+
+      # ======== Upload to Release ========
+      - name: "🚀 Upload to Release"
+        if: github.event.inputs.upload_method == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.release_tag != '' && github.event.inputs.release_tag || format('g4f-img-{0}', github.run_number) }}
+          name: "Smart Image (g4f) — ${{ github.event.inputs.image_model }}"
+          body: |
+            ## Smart AI Image Generation (g4f Enhanced)
+            | Detail | Value |
+            |--------|-------|
+            | **Original** | ${{ github.event.inputs.prompt }} |
+            | **Enhanced** | ${{ steps.gen.outputs.final_prompt }} |
+            | **Image Model** | ${{ github.event.inputs.image_model }} |
+            | **Enhance Provider** | ${{ steps.gen.outputs.enhance_provider }} |
+            | **Size** | ${{ github.event.inputs.width }}x${{ github.event.inputs.height }} |
+            | **Success** | ${{ steps.gen.outputs.success }} |
+            | **Failed** | ${{ steps.gen.outputs.failed }} |
+          files: |
+            output/*.png
+            output/gallery/**/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # ======== Cleanup ========
+      - name: "🧹 Cleanup"
+        if: always()
+        run: rm -rf output /tmp/ai_melli_*.json

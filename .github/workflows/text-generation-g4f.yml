@@ -1,0 +1,454 @@
+# ============================================================
+# 📝 AI Melli — Text Generation (g4f Enhanced)
+# ============================================================
+# یکپارچه‌سازی با g4f: بیش از 18 پرووایدر AI
+# https://g4f.dev/docs/ready_to_use.html
+# ============================================================
+
+name: "📝 Text Generation (g4f)"
+
+on:
+  workflow_dispatch:
+    inputs:
+      prompt:
+        description: "پرامپت شما (هر زبانی)"
+        required: true
+        type: string
+
+      provider:
+        description: "پرووایدر AI (g4f)"
+        required: true
+        default: "pollinations"
+        type: choice
+        options:
+          - pollinations
+          - groq
+          - ollama
+          - nvidia
+          - gemini
+          - auto
+          - deepinfra
+          - openrouter
+          - together
+          - xai
+          - openai
+          - typegpt
+          - grok
+          - api-airforce
+          - local
+
+      model:
+        description: "مدل AI"
+        required: true
+        default: "auto"
+        type: string
+
+      temperature:
+        description: "خلاقیت (0.0 - 2.0)"
+        required: false
+        default: "0.8"
+        type: string
+
+      max_tokens:
+        description: "حداکثر توکن خروجی"
+        required: false
+        default: "4096"
+        type: string
+
+      system_message:
+        description: "پیام سیستمی (نقش AI)"
+        required: false
+        default: "You are a creative and helpful AI assistant. Write detailed, well-structured, and engaging content. Use markdown formatting when appropriate."
+        type: string
+
+      output_format:
+        description: "فرمت خروجی"
+        required: false
+        default: "markdown"
+        type: choice
+        options:
+          - markdown
+          - json
+          - txt
+
+      upload_method:
+        description: "روش آپلود"
+        required: true
+        default: "repository"
+        type: choice
+        options:
+          - repository
+          - release
+
+      release_tag:
+        description: "تگ ریلیز (خالی = خودکار)"
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: write
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: "📥 Checkout"
+        uses: actions/checkout@v5
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: "📁 Prepare scripts"
+        shell: bash
+        run: mkdir -p scripts
+
+      - name: "🐍 Create g4f text generator script"
+        shell: bash
+        run: |
+          cat > scripts/generate_text_g4f.py << 'PYEOF'
+          #!/usr/bin/env python3
+          """
+          AI Melli — g4f Enhanced Text Generation
+          Supports 18+ AI providers via g4f OpenAI-compatible API
+          """
+          import urllib.request, urllib.parse, json, sys, os, time
+
+          # g4f Provider Base URLs (no API key needed unless noted)
+          PROVIDERS = {
+              "pollinations": "https://text.pollinations.ai",
+              "groq": "https://g4f.space/api/groq",
+              "ollama": "https://g4f.space/api/ollama",
+              "nvidia": "https://g4f.space/api/nvidia",
+              "gemini": "https://g4f.space/api/gemini",
+              "auto": "https://g4f.space/api/auto",
+              "deepinfra": "https://api.deepinfra.com/v1",
+              "openrouter": "https://openrouter.ai/api/v1",
+              "together": "https://api.together.xyz/v1",
+              "xai": "https://api.x.ai/v1",
+              "openai": "https://api.openai.com/v1",
+              "typegpt": "https://typegpt.ai/api",
+              "grok": "https://api.grok.com/v1",
+              "api-airforce": "https://api.airforce/v1",
+              "local": "http://localhost:1337/v1",
+          }
+
+          # Popular models per provider
+          MODELS = {
+              "pollinations": {
+                  "auto": "openai",
+                  "openai": "openai",
+                  "openai-large": "openai-large",
+                  "openai-reasoning": "openai-reasoning",
+                  "openai-fast": "openai-fast",
+              },
+              "groq": {
+                  "auto": "llama-3.1-70b-versatile",
+                  "llama-3.1-70b": "llama-3.1-70b-versatile",
+                  "llama-3.1-8b": "llama-3.1-8b-versatile",
+                  "mixtral": "mixtral-8x7b-32768",
+                  "gemma2": "gemma2-9b-it",
+              },
+              "ollama": {
+                  "auto": "llama3.1",
+                  "llama3.1": "llama3.1",
+                  "llama3": "llama3",
+                  "mistral": "mistral",
+                  "codellama": "codellama",
+                  "phi3": "phi3",
+                  "gemma2": "gemma2",
+              },
+              "nvidia": {
+                  "auto": "meta/llama-3.1-405b-instruct",
+                  "llama-3.1-405b": "meta/llama-3.1-405b-instruct",
+                  "llama-3.1-70b": "meta/llama-3.1-70b-instruct",
+                  "mixtral-8x22b": "mistralai/mixtral-8x22b-instruct-v0.1",
+                  "nemotron-4": "nvidia/nemotron-4-340b-instruct",
+              },
+              "gemini": {
+                  "auto": "gemini-2.0-flash",
+                  "gemini-2.0-flash": "gemini-2.0-flash",
+                  "gemini-1.5-pro": "gemini-1.5-pro",
+                  "gemini-1.5-flash": "gemini-1.5-flash",
+              },
+              "auto": {
+                  "auto": "auto",
+              },
+              "deepinfra": {
+                  "auto": "meta-llama/Meta-Llama-3.1-405B-Instruct",
+                  "llama-3.1-405b": "meta-llama/Meta-Llama-3.1-405B-Instruct",
+                  "llama-3.1-70b": "meta-llama/Meta-Llama-3.1-70B-Instruct",
+                  "mixtral-8x22b": "mistralai/Mixtral-8x22B-Instruct-v0.1",
+                  "qwen-2.5-72b": "Qwen/Qwen2.5-72B-Instruct",
+              },
+              "xai": {
+                  "auto": "grok-beta",
+                  "grok-beta": "grok-beta",
+                  "grok-2": "grok-2-1212",
+              },
+              "together": {
+                  "auto": "meta-llama/Llama-3.2-90B-Vision-Instruct-Turbo",
+                  "llama-3.2-90b": "meta-llama/Llama-3.2-90B-Vision-Instruct-Turbo",
+                  "qwen-2.5-72b": "Qwen/Qwen2.5-72B-Instruct-Turbo",
+                  "mistral-large": "mistralai/Mixtral-8x7B-Instruct-v0.1",
+              },
+              "openrouter": {
+                  "auto": "openai/gpt-4o-mini",
+                  "gpt-4o-mini": "openai/gpt-4o-mini",
+                  "gpt-4o": "openai/gpt-4o",
+                  "claude-3.5-sonnet": "anthropic/claude-3.5-sonnet",
+                  "llama-3.1-405b": "meta-llama/llama-3.1-405b-instruct",
+                  "gemini-pro": "google/gemini-pro-1.5",
+              },
+              "grok": {
+                  "auto": "grok-3",
+                  "grok-3": "grok-3",
+                  "grok-3-fast": "grok-3-fast",
+              },
+              "api-airforce": {
+                  "auto": "auto",
+              },
+          }
+
+          def get_model(provider, model_input):
+              """Resolve model name for the given provider."""
+              if provider == "pollinations" and model_input != "auto":
+                  return model_input
+              provider_models = MODELS.get(provider, {})
+              if model_input in provider_models:
+                  return provider_models[model_input]
+              return model_input if model_input else "auto"
+
+          def generate_with_pollinations(prompt, model, temperature, system_message, max_tokens):
+              """Original Pollinations API (backward compatible)."""
+              payload = json.dumps({
+                  "messages": [
+                      {"role": "system", "content": system_message},
+                      {"role": "user", "content": prompt}
+                  ],
+                  "model": model,
+                  "temperature": temperature
+              }).encode("utf-8")
+              url = f"https://text.pollinations.ai/{model}"
+              req = urllib.request.Request(url, data=payload, method="POST")
+              req.add_header("Content-Type", "application/json")
+              req.add_header("User-Agent", "AI-Melli/2.0-g4f")
+              with urllib.request.urlopen(req, timeout=120) as resp:
+                  raw = resp.read().decode("utf-8")
+              try:
+                  parsed = json.loads(raw)
+                  if isinstance(parsed, dict):
+                      text = parsed.get("choices", [{}])[0].get("message", {}).get("content", "")
+                      if not text: text = parsed.get("content", "")
+                      if not text: text = json.dumps(parsed, ensure_ascii=False)
+                  else:
+                      text = str(parsed)
+              except:
+                  text = raw
+              return text
+
+          def generate_with_openai_compat(prompt, model, temperature, system_message, max_tokens, base_url):
+              """OpenAI-compatible API (g4f providers)."""
+              payload = json.dumps({
+                  "model": model,
+                  "temperature": temperature,
+                  "max_tokens": int(max_tokens),
+                  "messages": [
+                      {"role": "system", "content": system_message},
+                      {"role": "user", "content": prompt}
+                  ],
+              }).encode("utf-8")
+              url = f"{base_url}/chat/completions"
+              print(f"  Request URL: {url}")
+              print(f"  Model: {model}")
+              req = urllib.request.Request(url, data=payload, method="POST")
+              req.add_header("Content-Type", "application/json")
+              req.add_header("User-Agent", "AI-Melli/2.0-g4f")
+              for attempt in range(3):
+                  try:
+                      with urllib.request.urlopen(req, timeout=120) as resp:
+                          raw = resp.read().decode("utf-8")
+                      try:
+                          parsed = json.loads(raw)
+                          if isinstance(parsed, dict):
+                              text = parsed.get("choices", [{}])[0].get("message", {}).get("content", "")
+                              if not text: text = parsed.get("content", "")
+                              if not text: text = json.dumps(parsed, ensure_ascii=False, indent=2)
+                          else:
+                              text = str(parsed)
+                      except:
+                          text = raw
+                      return text
+                  except Exception as e:
+                      print(f"  Attempt {attempt+1} error: {e}")
+                      if attempt < 2:
+                          time.sleep(3)
+              raise Exception(f"All attempts failed for {base_url}")
+
+          def generate_text(config):
+              prompt = config["prompt"]
+              provider = config.get("provider", "pollinations")
+              model_input = config.get("model", "auto")
+              temperature = float(config.get("temperature", "0.8"))
+              system_message = config.get("system_message", "You are a helpful AI assistant.")
+              max_tokens = int(config.get("max_tokens", "4096"))
+
+              model = get_model(provider, model_input)
+              print(f"Provider: {provider}")
+              print(f"Model: {model}")
+              print(f"Temperature: {temperature}")
+              print(f"Max Tokens: {max_tokens}")
+
+              if provider == "pollinations":
+                  return generate_with_pollinations(prompt, model, temperature, system_message, max_tokens)
+              else:
+                  base_url = PROVIDERS.get(provider)
+                  if not base_url:
+                      raise ValueError(f"Unknown provider: {provider}")
+                  return generate_with_openai_compat(prompt, model, temperature, system_message, max_tokens, base_url)
+
+          def main():
+              config_path = sys.argv[1] if len(sys.argv) > 1 else "/tmp/ai_melli_config.json"
+              with open(config_path) as f:
+                  cfg = json.load(f)
+
+              out_dir = cfg.get("output_dir", "output")
+              out_fmt = cfg.get("output_format", "markdown")
+              os.makedirs(out_dir, exist_ok=True)
+
+              print("=== AI Melli g4f Text Generation ===\n")
+              text = generate_text(cfg)
+
+              ts = time.strftime("%Y%m%d_%H%M%S")
+              base_name = f"generated_{ts}"
+
+              # Save in requested format
+              if out_fmt == "json":
+                  fpath = os.path.join(out_dir, f"{base_name}.json")
+                  with open(fpath, "w", encoding="utf-8") as f:
+                      json.dump({
+                          "provider": cfg.get("provider"),
+                          "model": cfg.get("model"),
+                          "prompt": cfg["prompt"],
+                          "text": text,
+                          "timestamp": ts
+                      }, f, ensure_ascii=False, indent=2)
+              elif out_fmt == "txt":
+                  fpath = os.path.join(out_dir, f"{base_name}.txt")
+                  with open(fpath, "w", encoding="utf-8") as f:
+                      f.write(text)
+              else:
+                  fpath = os.path.join(out_dir, f"{base_name}.md")
+                  with open(fpath, "w", encoding="utf-8") as f:
+                      f.write(f"# Generated by AI Melli (g4f)\n\n")
+                      f.write(f"| Key | Value |\n|-----|-------|\n")
+                      f.write(f"| **Provider** | {cfg.get('provider')} |\n")
+                      f.write(f"| **Model** | {cfg.get('model')} |\n")
+                      f.write(f"| **Date** | {time.strftime('%Y-%m-%d %H:%M:%S')} |\n")
+                      f.write(f"| **Prompt** | {cfg['prompt']} |\n\n---\n\n")
+                      f.write(text)
+
+              chars, words = len(text), len(text.split())
+              print(f"\n=== Text Generated ===")
+              print(f"Chars: {chars}, Words: {words}")
+              print(f"File: {fpath}")
+              print(f"\n--- Preview ---\n{text[:500]}")
+
+              with open("/tmp/ai_melli_result.json", "w") as f:
+                  json.dump({"file": fpath, "chars": chars, "words": words}, f)
+
+          if __name__ == "__main__":
+              main()
+          PYEOF
+
+      # ======== Build Config & Run ========
+      - name: "📝 Generate Text"
+        id: gen
+        shell: bash
+        run: |
+          jq -n \
+            --arg prompt "${{ github.event.inputs.prompt }}" \
+            --arg provider "${{ github.event.inputs.provider }}" \
+            --arg model "${{ github.event.inputs.model }}" \
+            --arg temp "${{ github.event.inputs.temperature }}" \
+            --arg maxtok "${{ github.event.inputs.max_tokens }}" \
+            --arg sys "${{ github.event.inputs.system_message }}" \
+            --arg fmt "${{ github.event.inputs.output_format }}" \
+            --arg outdir "output" \
+            '{
+              prompt: $prompt,
+              provider: $provider,
+              model: $model,
+              temperature: ($temp | tonumber),
+              max_tokens: $maxtok,
+              system_message: $sys,
+              output_format: $fmt,
+              output_dir: $outdir
+            }' > /tmp/ai_melli_config.json
+
+          echo "Config:"
+          cat /tmp/ai_melli_config.json
+          echo ""
+
+          python3 scripts/generate_text_g4f.py /tmp/ai_melli_config.json
+
+          if [ -f /tmp/ai_melli_result.json ]; then
+            echo "chars=$(jq -r '.chars' /tmp/ai_melli_result.json)" >> "$GITHUB_OUTPUT"
+            echo "words=$(jq -r '.words' /tmp/ai_melli_result.json)" >> "$GITHUB_OUTPUT"
+          fi
+
+      # ======== Summary ========
+      - name: "📊 Summary"
+        if: always()
+        shell: bash
+        run: |
+          echo "╔═══════════════════════════════════════╗"
+          echo "║   Text Generation (g4f) — Complete    ║"
+          echo "╠═══════════════════════════════════════╣"
+          echo "║ Provider : ${{ github.event.inputs.provider }}"
+          echo "║ Model    : ${{ github.event.inputs.model }}"
+          echo "║ Chars    : ${{ steps.gen.outputs.chars }}"
+          echo "║ Words    : ${{ steps.gen.outputs.words }}"
+          echo "╚═══════════════════════════════════════╝"
+
+      # ======== Upload to Repository ========
+      - name: "📦 Push to Repository"
+        if: github.event.inputs.upload_method == 'repository'
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add output/
+          git commit -m "Text(g4f/${{ github.event.inputs.provider }}): ${{ github.event.inputs.prompt }} [skip ci]" || echo "No changes"
+          git push
+
+      # ======== Upload to Release ========
+      - name: "🚀 Upload to Release"
+        if: github.event.inputs.upload_method == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.release_tag != '' && github.event.inputs.release_tag || format('g4f-txt-{0}', github.run_number) }}
+          name: "g4f Text — ${{ github.event.inputs.provider }}/${{ github.event.inputs.model }}"
+          body: |
+            ## AI Text Generation (g4f Enhanced)
+            | Detail | Value |
+            |--------|-------|
+            | **Provider** | ${{ github.event.inputs.provider }} |
+            | **Model** | ${{ github.event.inputs.model }} |
+            | **Prompt** | ${{ github.event.inputs.prompt }} |
+            | **Characters** | ${{ steps.gen.outputs.chars }} |
+            | **Words** | ${{ steps.gen.outputs.words }} |
+            | **Temperature** | ${{ github.event.inputs.temperature }} |
+          files: output/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # ======== Cleanup ========
+      - name: "🧹 Cleanup"
+        if: always()
+        run: rm -rf output /tmp/ai_melli_*.json
