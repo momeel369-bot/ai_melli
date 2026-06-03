@@ -1,0 +1,71 @@
+{
+  "query": "iran",
+  "search_type": "general",
+  "timestamp": "20260603_214602",
+  "total_results": 10,
+  "ai_summary": "Based on the provided search results, here is a concise summary of Iran:\n\n* **Official Name and History:** Officially known as the Islamic Republic of Iran, the country was historically known as Persia.\n* **Geographical Location:** It is a sovereign country located in West Asia and the Middle East, bordered by the Caspian Sea, the Gulf of Oman, and countries including Iraq, Turkey, Azerbaijan, and Armenia.\n* **Government Type:** Iran is classified as an Islamic republic.\n* **International Affiliations:** It is a member state of the Developing 8 Countries.",
+  "ai_summary_provider": "gemini",
+  "ai_summary_model": "auto",
+  "results": [
+    {
+      "title": "Iran",
+      "url": "https://en.wikipedia.org/wiki/Iran",
+      "description": "Iran, officially the Islamic Republic of Iran, historically known as Persia, is a country in West Asia. It borders Iraq to the west, Turkey, Azerbaijan, and Armenia to the northwest, the Caspian Sea to the north, Turkmenistan to the northeast, Afghanistan to the east, Pakistan to the southeast, and the Gulf of Oman and the Persian Gulf to the south. With a population of over 92 million, Iran ranks 17th globally in both geographic size and population. It is divided into five regions with 31 provinces. Tehran is the nation's capital and largest city and serves as its primary economic centre. Home to one of the world's oldest continuous major civilizations, the territory of present-day Iran was first unified under the Medes in the 7th century BC and reached its territorial height in the 6th century BC, when Cyrus the Great founded the Achaemenid Empire.",
+      "type": "general"
+    },
+    {
+      "title": "Iran Category",
+      "url": "https://duckduckgo.com/c/Iran",
+      "description": "Iran Category",
+      "type": "general"
+    },
+    {
+      "title": "Outline of Iran - The following outline is provided as an overview of and topical guide to Iran: Ira",
+      "url": "https://duckduckgo.com/Outline_of_Iran",
+      "description": "Outline of Iran - The following outline is provided as an overview of and topical guide to Iran: Iran – sovereign country located in West Asia and the Middle East. Iran is bound by the Gulf of Oman and the Persian Gulf to the south and the Caspian Sea to its north.",
+      "type": "general"
+    },
+    {
+      "title": "Developing 8 Countries member states",
+      "url": "https://duckduckgo.com/c/Developing_8_Countries_member_states",
+      "description": "Developing 8 Countries member states",
+      "type": "general"
+    },
+    {
+      "title": "Islamic republics",
+      "url": "https://duckduckgo.com/c/Islamic_republics",
+      "description": "Islamic republics",
+      "type": "general"
+    },
+    {
+      "title": "States and territories established in the 6th century BC",
+      "url": "https://duckduckgo.com/c/States_and_territories_established_in_the_6th_century_BC",
+      "description": "States and territories established in the 6th century BC",
+      "type": "general"
+    },
+    {
+      "title": "BRICS nations",
+      "url": "https://duckduckgo.com/c/BRICS_nations",
+      "description": "BRICS nations",
+      "type": "general"
+    },
+    {
+      "title": "Member states of OPEC",
+      "url": "https://duckduckgo.com/c/Member_states_of_OPEC",
+      "description": "Member states of OPEC",
+      "type": "general"
+    },
+    {
+      "title": "G15 nations",
+      "url": "https://duckduckgo.com/c/G15_nations",
+      "description": "G15 nations",
+      "type": "general"
+    },
+    {
+      "title": "Theocracies",
+      "url": "https://duckduckgo.com/c/Theocracies",
+      "description": "Theocracies",
+      "type": "general"
+    }
+  ]
+}
