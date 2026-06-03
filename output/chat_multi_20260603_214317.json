@@ -1,0 +1,34 @@
+{
+  "prompt": "hi",
+  "providers": [
+    "pollinations",
+    "groq",
+    "gemini"
+  ],
+  "mode": "all",
+  "total_time": 0.98,
+  "consensus": "",
+  "responses": [
+    {
+      "provider": "gemini",
+      "desc": "Google Gemini",
+      "model": "gemini-2.0-flash",
+      "status": "error",
+      "error": "HTTP Error 429: Too Many Requests"
+    },
+    {
+      "provider": "groq",
+      "desc": "Groq (ultra-fast)",
+      "model": "llama-3.1-70b-versatile",
+      "status": "error",
+      "error": "HTTP Error 400: Bad Request"
+    },
+    {
+      "provider": "pollinations",
+      "desc": "Pollinations AI (free)",
+      "model": "openai",
+      "status": "error",
+      "error": "HTTP Error 429: Too Many Requests"
+    }
+  ]
+}
